@@ -1,0 +1,27 @@
+# Secrets and machine-local state — never commit these.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+credentials.json
+auth.json
+*.secret
+
+# Hermes runtime state, if anyone ever installs this repo in place
+sessions/
+logs/
+state.db*
+cron/
+memories/
+workspace/
+profiles/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
