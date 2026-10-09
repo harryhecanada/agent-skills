@@ -1,72 +1,82 @@
 # agent-skills
 
-My Hermes Agent setup, kept in version control: the operating rules in `SOUL.md`
-and the `agent-roster` skill that defines the eleven subagent roles.
+A catalogue of agent skills, kept in version control. Each skill is plain markdown plus whatever
+reference files and scripts it needs, so it can be dropped into any agent that discovers skills from
+a directory.
+
+**Two rules hold the whole repo together:**
+
+1. **Name capabilities, never products.** A skill says `shell`, `delegate`, `browser` — not one
+   agent's tool names. The consumer maps them onto the tools it actually has.
+2. **Nothing agent-specific.** No vendor, IDE, model, or personal setup leaks into a skill. A skill
+   here should be installable by anyone, on anything.
 
 ## What's here
 
 ```
-SOUL.md                                        # the agent's identity + universal rules + roster pointer
-skills/subagents/agent-roster/SKILL.md         # how to dispatch each role through delegate_task
-skills/subagents/agent-roster/references/*.md  # 11 role briefs, one per agent
-install.sh                                     # copy both into a HERMES_HOME
+skills/
+  frameworks/
+    engineering-rigor/          rigorous engineering workflow: 23 playbooks, 23 principles,
+                                delegation invariants, capability vocabulary, command gates
+  subagents/
+    agent-roster/               eleven named subagent roles: briefs, dispatch shape, output schemas
+                                and the pipeline that orders them
+install.sh                      copy skills into a skills root
 ```
 
-## The eleven agents
+### `engineering-rigor`
 
-Each one is a **role**, not a process and not a profile. A role is realised as a
-`delegate_task` subagent: a fresh conversation that knows nothing about the parent's
-session, receives only the `goal` and `context` the parent writes, and returns a summary.
+The how: match a task to a playbook, work under named principles, delegate in isolated contexts,
+and prove the result against the real artifact before claiming it works. A port of poteto's pstack
+workflows. Start at its
+[`SKILL.md`](skills/frameworks/engineering-rigor/SKILL.md), then read
+[`TOOLS.md`](skills/frameworks/engineering-rigor/TOOLS.md) — that file is what makes the rest
+portable, because it defines the capability vocabulary and how to map it onto your own tools.
+It carries its own test suite (`pytest tests/`) and command gates
+(`scripts/gate-safety.sh`, `scripts/gate-delegation.sh`).
 
-There is no `agent=` parameter on `delegate_task`. The role is carried by the brief the
-child loads itself, as the first line of its context:
+### `agent-roster`
 
-```
-Act as the `advisor` agent. Load your role brief first:
-    skill_view(name='agent-roster', file_path='references/advisor.md')
-Follow it exactly. Then: <the task>
-```
+The who: eleven roles — `plan`, `logic`, `build`, `surgical`, `design`, `scribe`, `tester`,
+`advisor`, `hunter`, `sentinel`, `ship` — each a brief a dispatched child loads and follows. The
+skill carries the dispatch shape, the per-role output schemas, and the pipeline that keeps review
+from collapsing into self-review.
 
-| Role | What it does | Policy | Mode |
-|---|---|---|---|
-| `plan` | Read-only architect; design tree, then a written plan for approval | sandbox | main+sub |
-| `logic` | Invariants, decision tables, state machines, exhaustive coverage | sandbox | main+sub |
-| `build` | TDD implementer, vertical slices at agreed seams | auto | main+sub |
-| `surgical` | Minimal-diff bug fixes, root cause first, no surrounding refactors | sandbox | main+sub |
-| `design` | UI/UX and design systems, states, a11y, light/dark parity | sandbox | main+sub |
-| `scribe` | Keeps docs true and in sync with code and config | sandbox | main+sub |
-| `tester` | Closes coverage gaps via TDD at public seams | auto | main+sub |
-| `advisor` | Two-axis review (Standards + Spec), P1/P2/P3 with `file:line` + fix | sandbox | subagent-only |
-| `hunter` | Whole-codebase sweep: bug classes, dead code, quality risks | sandbox | subagent-only |
-| `sentinel` | Threat-model-first security audit, exploit paths, no fixes | sandbox | main+sub |
-| `ship` | Release verdict SHIP/NO-SHIP with an evidence-backed gate table | sandbox | main+sub |
-
-Pipeline: **plan** → (**logic**) → **build** → **tester** + **advisor** → **surgical**/**hunter**
-→ (**sentinel**) → **scribe** → **ship**, with the human owning approval, commits and the release.
+The two are designed to be used together: the roster names who runs the work, `engineering-rigor`
+names how any of them should work. A dispatch brief can carry both — name the role, then require
+the rigor rule that matters for that step.
 
 ## Install
 
 ```bash
-./install.sh              # into $HERMES_HOME (default ~/.hermes)
-./install.sh --dry-run    # show what would be copied
+./install.sh                        # all skills into ./skills-root (create it first)
+SKILLS_HOME=/path/to/skills ./install.sh
+./install.sh --dry-run              # show every action, write nothing
+./install.sh --only engineering-rigor
 ```
 
-`install.sh` copies `SOUL.md` and the skill into `$HERMES_HOME`, backing up any
-existing `SOUL.md` first. Restart any running Hermes session afterwards so it re-reads
-both.
+`install.sh` copies each skill directory into `$SKILLS_HOME` (default `$PWD/skills-root`), keeping
+the category path, and moves anything it would replace to a timestamped `.bak`.
 
-## Notes
+If your agent only discovers skills one level deep, flatten the category directory when installing:
+`skills/subagents/agent-roster` becomes `<skills-root>/agent-roster`. The skill contents do not
+depend on where they sit; only the entry `SKILL.md` needs to be discoverable.
 
-- The role rule lists are **derived** from each role's description — the source spec
-  states how many rules each role carries but not their text. Each brief says so at the
-  point of use; replace them when the originals turn up.
-- `sandbox` maps to Hermes' default for subagents: worker threads get a non-interactive
-  approval callback that auto-denies dangerous commands
-  (`delegation.subagent_auto_approve` defaults to `false`). `auto` roles (`build`,
-  `tester`) are the ones that may need that flag flipped — it is global, not per-role.
-- No secrets belong in this repo. `SOUL.md` here has none, and `.gitignore` blocks the
-  usual credential files.
+## Adding a skill
+
+```
+skills/<category>/<skill-name>/SKILL.md      # frontmatter: name, description, version
+skills/<category>/<skill-name>/references/   # optional, read on demand
+skills/<category>/<skill-name>/scripts/      # optional, runnable
+```
+
+- `description` is the trigger: say what it does and when to use it, because that line is all a
+  consumer sees before deciding.
+- Keep the body short and imperative; push detail into `references/` and read it when needed.
+- Reference other files by relative path, so the skill works wherever it is installed.
+- No credentials, no machine paths, no product names.
 
 ## Licence
 
-MIT — see `LICENSE`.
+MIT — see [`LICENSE`](LICENSE). `skills/frameworks/engineering-rigor` carries upstream's MIT licence
+and credits Lauren Tan's pstack workflows and Joel Taroreh's agentic engineering framework.

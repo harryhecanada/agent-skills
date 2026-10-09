@@ -1,28 +1,24 @@
 ---
 name: agent-roster
-description: "Use when delegating to a named subagent role (plan, logic, build, surgical, design, scribe, tester, advisor, hunter, sentinel, ship). Loads the role's brief, the delegate_task call shape, and its output schema."
-version: 1.0.0
-author: Harry + Hermes Agent
+description: "Use when delegating to a named subagent role (plan, logic, build, surgical, design, scribe, tester, advisor, hunter, sentinel, ship). Loads the role's brief, the dispatch shape, and its output schema."
+version: 1.2.0
+author: Harry
 license: MIT
 platforms: [linux, macos, windows]
-metadata:
-  hermes:
-    tags: [delegation, subagents, agents, roles, review, workflow]
-    related_skills: [subagent-driven-development, writing-plans, requesting-code-review, systematic-debugging]
 ---
 
-# Agent Roster — 11 Roles Dispatched Through `delegate_task`
+# Agent Roster — 11 Roles Dispatched Through `delegate`
 
 The eleven agents are **roles**, not processes and not profiles. Each one is realised as a
-`delegate_task` child: a fresh conversation that knows nothing about yours, receives only the
+`delegate` child: a fresh conversation that knows nothing about yours, receives only the
 `goal` you write and the `context` you hand it, and returns a summary.
 
-There is no `agent=` parameter on `delegate_task`. The role is carried by the brief the child
-loads, which is the first thing in its `context`:
+There is no `agent=` parameter to set. The role is carried by the brief the child loads, and it
+comes first:
 
 ```
-Act as the `{role}` agent. Load your role brief first:
-    skill_view(name='agent-roster', file_path='references/{role}.md')
+Act as the `{role}` agent. Load your role brief first: read
+    <this skill>/references/{role}.md
 Follow it exactly. Then: <the task>
 ```
 
@@ -47,54 +43,67 @@ That single line is the whole mechanism. Everything else below is how to use it 
 Know this before you write a dispatch, because it decides what you must put in `context`:
 
 - **No conversation history.** It has never seen this session.
-- **`goal` + `context` + this brief.** Nothing else. Its system prompt is "You are a focused
-  subagent...", your context block, the workspace path, and the project's context files
-  (`AGENTS.md`/`CLAUDE.md`) if a workspace is set. **`SOUL.md is deliberately excluded`** —
+- **Your brief and nothing else.** Its system prompt is minimal, it receives the brief you write,
+  and it may also see the workspace path and the project's context files (`AGENTS.md`/
+  `CLAUDE.md`) when a workspace is set. **The agent's identity file is deliberately excluded** —
   the parent owns identity.
-- **Your toolsets, minus a fixed block list**: `delegate_task`, `clarify`, `memory`,
-  `send_message`, `cronjob_manage`. So it can read/write files and run commands but cannot
-  ask you a question, cannot delegate further, and cannot write memory.
-- **No recursive delegation.** `delegation.max_spawn_depth` defaults to 1. If you need a child
-  that spawns children, raise it in config — the roster does not rely on it.
-- **`skill_view` is available**, which is why the child loads its own brief instead of you
-  pasting it. If a child ever reports the brief unavailable, paste the reference text into
-  `context` instead.
+- **A subset of your tools.** Most agents strip delegation, user questions, messaging and memory
+  writes from a child. So it can read/write files and run commands, but it cannot ask you a
+  question, cannot delegate further, and cannot write memory.
+- **No recursive delegation.** Assume a child cannot spawn children; keep the fan-out in the
+  parent. The roster never relies on nesting.
+- **It can read files**, which is why the child loads its own brief instead of you pasting it.
+  If a child reports the brief unreachable, paste the reference text into the brief instead.
 
 ## Call Shapes
 
 Single role:
 
 ```
-delegate_task(tasks=[{
-  "goal": "Fix the login redirect loop",
-  "context": "Act as the `surgical` agent. Load your role brief: skill_view(name='agent-roster', file_path='references/surgical.md') and follow it exactly.\n\nREPRO: <cmd> -> <observed output>\nEXPECTED: <...>\nFILES IN SCOPE: <...>\nTEST COMMAND: <...>",
-}])
+delegate(brief: """
+Act as the `surgical` agent. Load your role brief first:
+    <this skill>/references/surgical.md
+Follow it exactly.
+
+GOAL: Fix the login redirect loop
+REPRO: <cmd> -> <observed output>
+EXPECTED: <...>
+FILES IN SCOPE: <...>
+TEST COMMAND: <...>
+RETURN: the diff, the test command and its output, and anything unverified.
+""")
 ```
 
 Parallel roles — fan out by area, never by size, and never two children on one file:
 
 ```
-delegate_task(tasks=[
-  {"goal": "Sweep src/auth for bug classes", "context": "Act as the `hunter` agent. Load skill_view(name='agent-roster', file_path='references/hunter.md'). SCOPE: src/auth ..."},
-  {"goal": "Sweep src/upload for bug classes", "context": "Act as the `hunter` agent. Load ... SCOPE: src/upload ..."},
-])
+delegate(brief: """Act as the `hunter` agent. Load <this skill>/references/hunter.md, follow it exactly.
+SCOPE: src/auth ...""")
+delegate(brief: """Act as the `hunter` agent. Load <this skill>/references/hunter.md, follow it exactly.
+SCOPE: src/upload ...""")
 ```
 
-With a machine-checkable return, pass `output_schema` (the exact schema per role is in its
-brief and in the table below) so you are not parsing prose:
+Dispatch every child in one turn, then end the turn: a child returns exactly one result, and on
+most platforms it cannot message you mid-run.
 
-```
-delegate_task(tasks=[{"goal": "...", "context": "...", "output_schema": {...}}])
-```
+Where the tool takes a machine-checkable return, pass the role's output schema (the exact schema
+per role is in its brief and in the table below) so you are not parsing prose.
 
 Review dispatch — the one everyone gets wrong: the reviewer must **not** share the author's
 context, or it inherits the author's assumptions:
 
 ```
-delegate_task(tasks=[{
-  "goal": "Review the diff at <path or git range> against the spec in <spec>",
-  "context": "Act as the `advisor` agent. Load skill_view(name='agent-roster', file_path='references/advisor.md').\nSPEC: <verbatim>\nDIFF: <git diff command or file list>\nCONVENTIONS: <style/test norms>\nAUTHOR'S EVIDENCE: <what build claimed>",
-}])
+delegate(brief: """
+Act as the `advisor` agent. Load your role brief first:
+    <this skill>/references/advisor.md
+Follow it exactly.
+
+GOAL: Review the diff at <path or git range> against the spec in <spec>
+SPEC: <verbatim>
+DIFF: <git diff command or file list>
+CONVENTIONS: <style/test norms>
+AUTHOR'S EVIDENCE: <what build claimed>
+""")
 ```
 
 ## Output Schemas
@@ -113,25 +122,23 @@ comes back either way.
 ## Policy: sandbox and auto
 
 `sandbox` (9 of 11 roles) means **read-and-report**: modify nothing the task did not explicitly
-name, and stop when a command is refused. This is the default in Hermes — subagent worker threads
-get a non-interactive approval callback that **auto-denies** dangerous commands
-(`delegation.subagent_auto_approve` defaults to `false`), so a sandbox child that tries something
-dangerous is refused and should report that refusal rather than route around it.
+name, and stop when a command is refused. Where your platform gives children a non-interactive
+approval path that auto-denies dangerous commands, a sandbox child that tries something dangerous
+is refused — it should report that refusal rather than route around it.
 
 `auto` (`build`, `tester`) means the child is expected to run the real test/lint/build and may
 need to move files around to do it. If those dispatches keep coming back with refusals, that is
-the signal to set `delegation.subagent_auto_approve: true` — it is a **global** setting, not a
-per-role one, so enable it deliberately and only when the sandbox refusals are actually blocking
-implementation work.
+the signal to loosen that policy — and because such a setting is usually **global** rather than
+per-role, loosen it deliberately and only when the refusals are actually blocking implementation
+work.
 
-Mode is advisory where Hermes cannot enforce it: `advisor` and `hunter` are `subagent-only` by
-convention, so do not hand a session to them — dispatch them and take the report back.
+Mode is advisory where the platform cannot enforce it: `advisor` and `hunter` are `subagent-only`
+by convention, so do not hand a session to them — dispatch them and take the report back.
 
 ## Coordinating The Team
 
-The parent session is the only coordinator: children cannot delegate (the `delegate_task` tool is
-stripped from every child, `delegation.max_spawn_depth` defaults to 1), cannot ask the user, cannot
-write memory, and cannot message anyone. Every handoff goes through the parent, by artifact, not by
+The parent session is the only coordinator: children cannot delegate (the delegation tool is
+withheld from them), cannot ask the user, cannot write memory, and cannot message anyone. Every handoff goes through the parent, by artifact, not by
 re-explanation.
 
 **Pipeline**
@@ -161,18 +168,18 @@ behaviour freezes. A `ship` verdict that arrives before `sentinel` has reported 
 
 ## Pitfalls
 
-- **Do not pass `toolsets`.** There is no model-facing toolsets argument; children inherit yours. Older
-  examples that show `toolsets=['file']` are misleading.
+- **Do not pass a tool list.** Children inherit your tools; there is no model-facing toolsets
+  argument. Examples that show `toolsets=['file']` are misleading.
 - **A child cannot ask you anything.** Anything ambiguous must be resolved before dispatch, or the
   child returns a blocked result with a reason. That return is a success, not a failure.
-- **Children cannot delegate.** If work needs sub-fanning, either raise `delegation.max_spawn_depth`
-  or keep the fan-out in the parent.
+- **Children cannot delegate.** Keep the fan-out in the parent; nothing in the roster relies on a
+  child spawning grandchildren.
 - **Results are self-reports.** A child claiming it wrote a file, ran a suite, or passed a gate has
   not been verified by you. Check the artifact before repeating the claim (`VERIFY SIDE EFFECTS`).
 - **Never let the author review itself.** `build` reviewing `build` is not a review; dispatch
   `advisor` fresh.
-- **Source of truth for the roster** is this skill. `SOUL.md` carries a short pointer to it, not a
-  second copy — update the roster here.
+- **Source of truth for the roster** is this skill. Your agent's identity file carries a short
+  pointer to it, not a second copy — update the roster here.
 
 ## Further Reading
 

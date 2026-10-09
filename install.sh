@@ -1,74 +1,73 @@
 #!/usr/bin/env bash
-# Install SOUL.md and the agent-roster skill into a Hermes home.
+# Install skills from this repo into a skills root.
 #
-#   ./install.sh              install into $HERMES_HOME (default ~/.hermes)
-#   ./install.sh --dry-run    print what would happen, touch nothing
-#   HERMES_HOME=/path ./install.sh
+#   ./install.sh                              all skills into ./skills-root
+#   SKILLS_HOME=/path/to/skills ./install.sh  another skills root
+#   ./install.sh --only engineering-rigor     one skill, by leaf name
+#   ./install.sh --dry-run                    print what would happen, touch nothing
+#
+# Skills are copied with their category path (skills/subagents/agent-roster -> <root>/subagents/agent-roster).
+# Anything it would replace is moved aside to a timestamped .bak first.
+#
+# If your agent only discovers skills one level deep, flatten after install — the skill contents do
+# not depend on where they sit.
 set -euo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-SKILL_NAME="agent-roster"
-DEST_SKILL="$HERMES_HOME/skills/subagents/$SKILL_NAME"
+SKILLS_HOME="${SKILLS_HOME:-$PWD/skills-root}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 DRY_RUN=0
+ONLY=""
 
-for arg in "$@"; do
-  case "$arg" in
+while [ $# -gt 0 ]; do
+  case "$1" in
     --dry-run|-n) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+    --only) shift; ONLY="${1:-}"; [ -z "$ONLY" ] && { echo "--only needs a skill name" >&2; exit 2; } ;;
+    -h|--help) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 
 say() { printf '%s\n' "$*"; }
 run() {
-  if [ "$DRY_RUN" -eq 1 ]; then
-    say "  would: $*"
-  else
-    "$@"
-  fi
+  if [ "$DRY_RUN" -eq 1 ]; then say "  would: $*"; else "$@"; fi
 }
 
-if [ ! -d "$HERMES_HOME" ]; then
-  say "error: HERMES_HOME does not exist: $HERMES_HOME" >&2
-  say "       create it first, or set HERMES_HOME to an existing Hermes home." >&2
-  exit 1
-fi
-
 say "source:      $SRC_DIR"
-say "HERMES_HOME: $HERMES_HOME"
+say "SKILLS_HOME: $SKILLS_HOME"
+[ -n "$ONLY" ] && say "only:        $ONLY"
 [ "$DRY_RUN" -eq 1 ] && say "mode:        DRY RUN (nothing will be written)"
 say ""
 
-# --- SOUL.md -----------------------------------------------------------------
-if [ -f "$HERMES_HOME/SOUL.md" ]; then
-  if cmp -s "$SRC_DIR/SOUL.md" "$HERMES_HOME/SOUL.md"; then
-    say "SOUL.md: already identical, leaving it alone"
-  else
-    say "SOUL.md: differs — backing up to SOUL.md.bak.$STAMP"
-    run cp -p "$HERMES_HOME/SOUL.md" "$HERMES_HOME/SOUL.md.bak.$STAMP"
-    run cp "$SRC_DIR/SOUL.md" "$HERMES_HOME/SOUL.md"
-    say "SOUL.md: replaced"
+found=0
+while IFS= read -r skill_md; do
+  src="$(dirname "$skill_md")"
+  rel="${src#"$SRC_DIR"/skills/}"
+  name="$(basename "$src")"
+  [ -n "$ONLY" ] && [ "$name" != "$ONLY" ] && continue
+  found=$((found + 1))
+  dest="$SKILLS_HOME/$rel"
+  if [ -e "$dest" ]; then
+    say "backup:   $rel exists — $dest.bak.$STAMP"
+    run mv "$dest" "$dest.bak.$STAMP"
   fi
-else
-  run cp "$SRC_DIR/SOUL.md" "$HERMES_HOME/SOUL.md"
-  say "SOUL.md: installed"
-fi
+  run mkdir -p "$(dirname "$dest")"
+  run cp -r "$src" "$dest"
+  say "skill:    $rel installed"
+# top-level skills only: skills/<category>/<skill>/SKILL.md. A skill may carry its own nested
+# skills (engineering-rigor does); those travel with it and are not installed separately.
+done < <(find "$SRC_DIR/skills" -mindepth 3 -maxdepth 3 -name SKILL.md -not -path '*/node_modules/*' | sort)
 
-# --- skill -------------------------------------------------------------------
-run mkdir -p "$HERMES_HOME/skills/subagents"
-if [ -d "$DEST_SKILL" ]; then
-  say "skill:    $DEST_SKILL exists — backing up to $DEST_SKILL.bak.$STAMP"
-  run mv "$DEST_SKILL" "$DEST_SKILL.bak.$STAMP"
+if [ "$found" -eq 0 ]; then
+  say "no skills matched (--only $ONLY)" >&2
+  exit 1
 fi
-run cp -r "$SRC_DIR/skills/subagents/$SKILL_NAME" "$DEST_SKILL"
-say "skill:    installed to $DEST_SKILL"
 
 say ""
 if [ "$DRY_RUN" -eq 1 ]; then
   say "dry run complete — nothing was written."
 else
-  say "done. restart any running Hermes session so it re-reads SOUL.md and the skill."
-  say "verify with:  hermes chat -q 'list the skills you have that mention agent-roster'"
+  say "done. $found skill(s) installed into $SKILLS_HOME."
+  say "verify:  ls \$SKILLS_HOME   (each skill keeps its SKILL.md)"
 fi
